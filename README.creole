@@ -1,0 +1,218 @@
+== Jerk - The fast ruby gem manager
+
+Jerk is a simple ruby gem manager in a single file with only about 600 LOC. There are no dependencies except for ruby itself, not even rubygems.
+
+== Features
+
+* Manage multiple package environments for separate projects (Similar to rip)
+* Simple and fast
+* Can manage rubygems for multiple ruby versions at the same time (I tested 1.8, 1.9 and rubinius)
+* RUBYLIB load path is exported by the tool
+
+== Why another package manager?
+
+My linux distribution has really buggy rubygem support. Installation for multiple ruby versions doesn't work.
+And everyone knows rubygems is a fat hog. Yesterday I had enough and removed all system gems.
+
+After investigating other package managers for a while, the alternatives
+didn't really satisfy me: the concept of rip is good but it is too hacky with all those small scripts.
+Therefore it is very difficult to debug. Actually it didn't work at all for me due to gems with packaging standard violations.
+
+Besides it depends on external package managers like rubygems or rpg which are used for fetching gems etc. Finding gems in the index
+and fetching them is quite an easy task using a bit tar-magic.
+
+Conclusion: I wanted something simple to deploy, at best a single script with no external dependencies and definitely no dependency to shitty rubygems.
+And I wanted the possibility to manage gems for multiple ruby versions without much hassle. So here it is: The package jerk!
+
+Beware of bugs in the above code; I have only proved it correct, ... ;) - no really, this thing was written in one day - no promises!
+
+== Installation
+
+Very simple: Copy the file 'jerk' and put it on the search path.
+
+Install a gem, export the jerk environment variables and use the installed gem (In this case rake).
+
+{{{
+$ jerk install rake
+$ `jerk export base 18`
+$ rake
+}}}
+
+== Commands
+
+{{{
+$ jerk
+jerk: Simple ruby package manager
+Usage: jerk <command> [options]
+
+Commands:
+    env                              Manage environment
+    export                           Export environment variables (search paths)
+    index                            Update package index
+    install                          Install package
+    list                             List installed packages
+    remove                           Remove package
+    search                           Search package in the index (wildcards supported)
+    update                           Update packages
+}}}
+
+== Manage environments
+
+Create/Switch to environment
+
+{{{
+jerk env test
+Environment test created
+Environment test is active
+}}}
+
+Remove environment
+
+{{{
+$ jerk env rm test
+Environment test removed
+Environment base is active
+}}}
+
+==== Export environment variables
+
+Export environment variables (enable installed packages)
+
+{{{
+$ `jerk export test 18`
+}}}
+
+Do not forget the backticks! Otherwise the variables will not be evaluated in the shell and you will see something like this
+
+{{{
+$ jerk export test 18
+export RUBYLIB=... PATH=...
+}}}
+
+=== Update package index
+
+{{{
+$ jerk index
+Fetch http://rubygems.org/latest_specs.4.8.gz
+Fetch http://rubygems.org/specs.4.8.gz
+Fetch http://rubygems.org/prerelease_specs.4.8.gz
+}}}
+
+=== Install package
+
+Install a package in the active environment.
+
+{{{
+$ jerk install rake
+(test 18) rake-0.8.7 installed
+(test 19) rake-0.8.7 installed
+(test rbx) rake-0.8.7 installed
+}}}
+
+The first word in the parantheses is the environment, the second is the ruby version.
+You can install packages only for specific ruby implementations, in this case ruby 1.8 and rubinius.
+
+{{{
+$ jerk install -r 18 -r rbx rake
+(test 18) rake-0.8.7 installed
+(test rbx) rake-0.8.7 installed
+}}}
+
+Install a specific version:
+
+{{{
+$ jerk install rake-0.8.4
+(test 18) rake-0.8.4 installed
+(test 19) rake-0.8.4 installed
+(test rbx) rake-0.8.4 installed
+}}}
+
+== List installed packages
+
+{{{
+$ jerk list
+rbx                    18        19        rbx
+    nokogiri           1.4.3.1   1.4.3.1   1.4.3.1
+    rake               0.8.7     0.8.7     0.8.7
+
+test (active)          18        19        rbx
+    rake               0.8.7               0.8.7
+}}}
+
+=== Remove package
+
+Remove package from the active environment.
+
+{{{
+$ jerk remove rake
+(test 18) rake-0.8.7 removed
+(test 19) rake-0.8.7 removed
+(test rbx) rake-0.8.7 removed
+}}}
+
+Ruby implementations can be specified using '-r' as for 'jerk install'.
+
+=== Search a package
+
+This command shows all available versions in the index. Wildcards are supported.
+
+{{{
+$ jerk search creol*
+creole-0.3.6
+creole-0.3.3
+creole-0.3.4
+creole-0.3.5
+creole-0.3.6
+}}}
+
+=== Update a package
+
+{{{
+$ jerk update
+(test 18) rake-0.8.4 replaced with rake-0.8.7
+(test 19) rake-0.8.4 replaced with rake-0.8.7
+(test rbx) rake-0.8.4 replaced with rake-0.8.7
+}}}
+
+== Contributing
+
+# Fork jerk
+# Create a topic branch - git checkout -b my_branch
+# Push to your branch - git push origin my_branch
+# Create an issue with a link to your branch
+
+== Todo
+
+* Write test cases
+* Extensive testing with different gems
+* Support for different package sources (git etc)
+* Configurable gem servers
+* More strict dependency checking
+
+== Author
+
+* [[https://github.com/minad/jerk|minad]]
+
+== License
+
+The MIT License
+
+Copyright (c) 2010 Daniel Mendler
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.

@@ -1,0 +1,611 @@
+#!/usr/bin/ruby
+# jerk ruby package manager by Daniel Mendler
+
+require 'fileutils'
+require 'yaml'
+require 'optparse'
+require 'zlib'
+require 'open-uri'
+
+# Faked gem classes required for the unmarshalling
+module Gem
+  class Base
+    def respond_to?(var)
+      instance_variable_defined?("@#{var}") || super
+    end
+
+    def method_missing(var, *args)
+      respond_to?(var) ? instance_variable_get("@#{var}") : super
+    end
+  end
+
+  class Dependency < Base
+    def comparator
+      version_requirements.requirements[0].first
+    end
+
+    def version
+      version_requirements.requirements[0].last.version
+    end
+
+    def type
+      @type || :runtime
+    end
+  end
+
+  class Specification < Base; end
+  class Requirement   < Base; end
+
+  class Version
+    attr_reader :version
+    def marshal_load(version)
+      @version = version.first
+    end
+  end
+end
+
+class Jerk
+  # Ruby implementations
+  # Identifier => List of commands
+  Rubies = {
+    '19'    => %w(ruby19 ruby1.9),
+    '18'    => %w(ruby18 ruby1.8),
+    'rbx'   => %w(rbx)
+  }
+
+  # List of spec files on the package server
+  # latest_specs must be first for update to work
+  Specs = %w(latest_specs specs prerelease_specs)
+
+  PackageServer = 'http://rubygems.org'
+
+  # Terminal output helpers
+  module Term
+    # Escape sequences for coloring
+    Reset  = "\e[0m"
+    Red    = "\e[31m"
+    Yellow = "\e[33m"
+    Blue   = "\e[36m"
+
+    # Length of string without escape sequences
+    def self.length(str)
+      str.gsub(/\e\[\d+m/, '').length
+    end
+
+    # Print matrix
+    def self.print_table(table)
+      width = []
+      table.each do |row|
+        row.each_with_index do |cell, i|
+          width[i] = [width[i] || 0, length(cell) + 3].max
+        end if row
+      end
+
+      out = ''
+      table.each do |row|
+        if row
+          row.each_with_index do |cell, i|
+            out << cell << (' ' * (width[i] - length(cell)))
+          end
+        end
+        out << "\n"
+      end
+
+      puts out
+    end
+  end
+
+  # Simple logger implementation
+  # Supports level and output to the terminal
+  class Logger
+    Color = {
+      :error => Term::Red,
+      :warn  => Term::Yellow,
+      :info  => '',
+      :debug => Term::Blue,
+    }
+
+    Level = {
+      :error => 0,
+      :warn  => 1,
+      :info  => 2,
+      :debug => 3,
+    }
+
+    attr_reader :file
+    attr_accessor :level
+
+    def initialize(file, level = :info)
+      @file = file
+      @level = level
+    end
+
+    def error(*msg); log(:error, msg) end
+    def info(*msg);  log(:info,  msg)  end
+    def warn(*msg);  log(:warn,  msg)  end
+    def debug(*msg); log(:debug, msg) end
+
+    def log(level, msgs)
+      if Level[level] <= Level[@level]
+        msgs.each do |msg|
+          puts "#{Color[level]}#{msg.respond_to?(:message) ? msg.message : msg}#{Term::Reset}"
+        end
+      end
+      File.open(file, 'a') do |out|
+        msgs.each do |msg|
+          if msg.respond_to? :message
+            out.puts "%-5s Exception: %s\n%s" % [level.to_s.upcase, msg.message, msg.backtrace.join("\n")]
+          else
+            out.puts '%-5s %s' % [level.to_s.upcase, msg]
+          end
+        end
+      end
+    end
+  end
+
+  # List of commands
+  def self.commands
+    @commands ||= {}
+  end
+
+  # Register command
+  def self.command(name, description, &block)
+    commands[name.to_s] = [description, block]
+  end
+
+  attr_reader :jerk_path, :env_path, :cache_path, :logger, :rubies
+
+  # Initialize manager
+  def initialize
+    create_directories
+    find_rubies
+    execute
+  end
+
+  # Create jerk directories at ~/.jerk
+  def create_directories
+    @jerk_path = File.expand_path '~/.jerk'
+    @env_path = File.join(@jerk_path, 'env')
+    @cache_path = File.join(@jerk_path, 'cache')
+    FileUtils.mkdir(jerk_path) if !File.exists? jerk_path
+    FileUtils.mkdir(env_path) if !File.exists? env_path
+    FileUtils.mkdir(cache_path) if !File.exists? cache_path
+    @logger = Logger.new(File.join(@jerk_path, 'log'))
+  end
+
+  # Find ruby implementations using which
+  def find_rubies
+    @rubies = {}
+    Rubies.each do |version, cmds|
+      cmds.each do |cmd|
+        path = sh('which', cmd).strip rescue nil
+        if path
+          @rubies[version] = path
+          break
+        end
+      end
+    end
+  end
+
+  # Do the actual work
+  def execute
+    check_active_env
+    name = ARGV.shift
+    if !name || !Jerk.commands[name]
+      puts "jerk: Fast ruby package manager\nUsage: jerk <command> [options]\n\nCommands:\n" +
+        Jerk.commands.map {|k, v| '    %-32s %s' % [k, v[0]] }.sort.join("\n")
+      exit 1
+    end
+    instance_eval(&Jerk.commands[name].last)
+  rescue => ex
+    logger.error ex
+    exit 1
+  end
+
+  # Shell helper
+  def sh(*args)
+    cmdline = args.flatten.compact.map do |s|
+      s == '|' ? '|' : "'" + s.to_s.gsub("'", "'\\\\''") + "'"
+    end.join(' ')
+    output = `#{cmdline} 2>&1`
+    raise "#{cmdline} failed with #{$?.exitstatus}. Output:\n#{output}" if $?.exitstatus > 0
+    output
+  end
+
+  # Split package name in [name, version]
+  def split_name(name)
+    if name =~ /^(.*?)-(\d+\..+)$/
+      [$1, $2]
+    else
+      [name, nil]
+    end
+  end
+
+  # Join package name and version
+  def join_name(*name)
+    name.compact.join('-')
+  end
+
+  # Returns name of active environment
+  def active_env
+    @active_env ||= begin
+      path = File.join(jerk_path, 'active')
+      File.exists?(path) ? File.basename(File.readlink(path)) : nil
+    end
+  end
+
+  # Returns list of environments
+  def env_list
+    list_files(env_path).sort
+  end
+
+  # List all files in a directory
+  def list_files(dir, &block)
+    list = File.exists?(dir) ? Dir.new(dir).reject {|name| name[0..0] == '.' } : []
+    block_given? ? list.each(&block) : list
+  end
+
+  # Set active environment
+  def set_env(name)
+    path = File.join(env_path, name)
+    if !File.exists? path
+      FileUtils.mkdir(path)
+      logger.info "Environment #{name} created"
+    end
+    path = File.join(jerk_path, 'active')
+    File.unlink(path) rescue nil
+    File.symlink(File.join('env', name), path)
+    logger.info "Environment #{name} is active"
+  end
+
+  # Check if there is an active environment.
+  # If not, create one.
+  def check_active_env
+    @active_env = nil
+    set_env env_list.first || 'base' if !active_env
+  end
+
+  # Show usage and exit
+  def usage(o)
+    puts o
+    exit 1
+  end
+
+  #  Add global options to option parser
+  def global_options(o)
+    o.on '-h', '--help', 'Display this screen' do
+      usage(o)
+    end
+
+    o.on '-v', '--verbose', 'Verbose mode' do
+      logger.level = :debug
+    end
+  end
+
+  # Update index files
+  def update_index
+    Specs.each do |spec|
+      url = "#{PackageServer}/#{spec}.4.8.gz"
+      logger.info "Fetch #{url}"
+      open(url) do |input|
+        input = Zlib::GzipReader.new(input)
+        File.open(File.join(cache_path, spec), 'w') do |out|
+          while part = input.read(0xFFFF)
+            out.write(part)
+          end
+        end
+      end
+    end
+  end
+
+  # Return package index
+  def index
+    update_index if !Specs.all? {|spec| File.exists? File.join(cache_path, spec) }
+    @index ||= Specs.inject([]) do |list, spec|
+      list + Marshal.load(File.open(File.join(cache_path, spec))).select {|entry| entry.last == 'ruby' }.map {|entry| [entry[0], entry[1].version] }
+    end
+  end
+
+  # Find package in the index and add version string to the name
+  def find_package(name)
+    logger.debug "Search for #{name}"
+    name, version = split_name(name)
+    versions = index.select {|entry| entry.first == name }.map {|entry| entry.last }
+    logger.debug "Found #{name} #{versions.join(', ')}"
+    raise "#{join_name name, version} not found" if version && !versions.include?(version)
+    version ||= versions.first
+    raise("#{name} not found") if !version
+    join_name name, version
+  end
+
+  # Fetch package from the server and copy it to the cache
+  def fetch_package(name)
+    target = File.join(cache_path, "#{name}.gem")
+    if !File.exists?(target)
+      url = "#{PackageServer}/gems/#{name}.gem"
+      logger.debug "Fetch #{url}"
+      open(url) do |input|
+        File.open(target, 'w') do |out|
+          while part = input.read(0xFFFF)
+            out.write(part)
+          end
+        end
+      end
+    end
+    target
+  end
+
+  # Unpack package
+  def unpack_package(target, path)
+    FileUtils.mkdir_p(target)
+    sh('tar', '-Oxf', path, 'data.tar.gz', '|', 'tar', '-C', target, '-xz')
+  end
+
+  # Build package with extconf.rb
+  def build_package(rb, path)
+    list = Dir["#{path}/**/extconf.rb"]
+    list.each do |build_file|
+      build_dir = File.dirname(build_file)
+      FileUtils.cd(build_dir) do
+        sh(rubies[rb], 'extconf.rb')
+        sh('make', 'install', "sitearchdir=#{path}/lib")
+      end
+    end
+  end
+
+  # Configure package
+  # Currently this only replaces the #! headers of the executables.
+  def configure_package(rb, path)
+    list_files(File.join(path, 'bin')) do |file|
+      file = File.join(path, 'bin', file)
+      if File.file? file
+        content = File.read(file)
+        if content[0..1] == '#!'
+          content.sub!(/^#!(.*)/, "#!#{rubies[rb]}")
+          File.open(file, 'w') {|out| out << content }
+        end
+      end
+    end
+  end
+
+  # Remove package
+  def remove_package(dir)
+    FileUtils.rm_rf(dir)
+    part = dir.split(File::Separator).reverse
+    logger.info "(#{active_env} #{part[1]}) #{part[0]} removed"
+  end
+
+  # Install package
+  def install_package(rbs, name)
+    name = find_package(name)
+    path = fetch_package(name)
+    installed = false
+    rbs.each do |rb|
+      begin
+        target = File.join(env_path, active_env, rb, name)
+	existing = installed_package(rb, split_name(name).first)
+	if existing == name
+          logger.debug "(#{active_env} #{rb}) #{name} exists"
+        else
+          logger.debug "(#{active_env} #{rb}) Unpack #{File.basename(path)}"
+          unpack_package(target, path)
+          logger.debug "(#{active_env} #{rb}) Configure #{name}"
+          configure_package(rb, target)
+          logger.debug "(#{active_env} #{rb}) Build #{name}"
+          build_package(rb, target)
+          if existing
+            FileUtils.rm_rf(File.join(env_path, active_env, rb, existing))
+            logger.info "(#{active_env} #{rb}) #{existing} replaced with #{name}"
+          else
+            logger.info "(#{active_env} #{rb}) #{name} installed"
+          end
+          installed = true
+        end
+      rescue => ex
+        logger.error "(#{active_env} #{rb}) Installation of #{name} failed", ex
+        FileUtils.rm_rf(target)
+      end
+    end
+
+    if installed
+      spec = YAML.load sh('tar', '-Oxf', path, 'metadata.gz', '|', 'gunzip')
+      deps = spec.dependencies.select {|dep| dep.type == :runtime }
+      deps.each do |dep|
+        install_package(rbs, dep.comparator == '=' ? join_name(dep.name, dep.version) : dep.name)
+      end
+    end
+  end
+
+  # Returns originel paths from environment (removes jerky modifications)
+  def original_paths(name)
+    ENV[name].to_s.split(':').reject {|path| path.include? jerk_path }
+  end
+
+  # Returns installed package by name
+  def installed_package(rb, name)
+    list_files(File.join(env_path, active_env, rb)).select {|n| split_name(n).first == name }.first
+  end
+
+  command :install, 'Install package' do
+    rbs = nil
+    parser = OptionParser.new do |o|
+      o.banner = 'Usage: jerk install [options] <package>...'
+      o.separator "\nOptions:"
+      global_options(o)
+
+      o.on('-r', "--ruby <#{rubies.keys.join('|')}>", 'Install only for specified ruby') do |rb|
+        (rbs ||= []) << rb
+      end
+    end
+    parser.parse!
+
+    usage(parser) if ARGV.length < 1
+    ARGV.each {|name| install_package(rbs || rubies.keys, name) }
+  end
+
+  command :search, 'Search package in the index (wildcards supported)' do
+    ARGV.each do |name|
+      names = index.select { |entry| name == entry.first || File.fnmatch(name, entry.first) }.
+        map { |entry| join_name *entry }.join("\n")
+      puts names.empty? ? "#{name} not found" : names
+    end
+  end
+
+  command :remove, 'Remove package' do
+    rbs = nil
+    parser = OptionParser.new do |o|
+      o.banner = 'Usage: jerk remove [options] <package>...'
+      o.separator "\nOptions:"
+      global_options(o)
+
+      o.on('-r', "--ruby <#{rubies.keys.join('|')}>", 'Remove only from specified ruby') do |rb|
+        (rbs ||= []) << rb
+      end
+    end
+    parser.parse!
+
+    usage(parser) if ARGV.length < 1
+
+    rbs ||= rubies.keys
+    ARGV.each do |name|
+      list = rbs.map do |rb|
+        full_name = installed_package(rb, name)
+        [rb, full_name] if full_name
+      end.compact
+      if list.empty?
+        logger.warn "#{name} not found"
+      else
+        list.each do |rb, full_name|
+          FileUtils.rm_rf(File.join(env_path, active_env, rb, full_name))
+          logger.info "(#{active_env} #{rb}) #{full_name} removed"
+        end
+      end
+    end
+  end
+
+  command :list, 'List installed packages' do
+    parser = OptionParser.new do |o|
+      o.banner = 'Usage: jerk list [options] [environment...]'
+      o.separator "\nOptions:"
+      global_options(o)
+    end
+    parser.parse!
+
+    list = env_list
+    list.reject! {|env| !ARGV.include? env } if !ARGV.empty?
+
+    table = []
+    list.each do |env|
+      rbs = rubies.keys.sort
+
+      packages = {}
+      rbs.each do |rb|
+        list_files(File.join(env_path, env, rb)).sort.each do |name|
+          name, version = split_name(name)
+          packages[name] ||= {}
+          packages[name][rb] = version
+        end
+      end
+
+      table << [%{#{Term::Red}#{env}#{Term::Reset}#{active_env == env ? " (#{Term::Yellow}active#{Term::Reset})" : ''}}] + rbs
+      packages.keys.sort.each do |name|
+        row = ['    ' + name]
+        rbs.each do |rb|
+          row << packages[name][rb].to_s
+        end
+        table << row
+      end
+
+      table << nil
+    end
+
+    Term.print_table table
+  end
+
+  command :update, 'Update packages' do
+    rbs = nil
+    parser = OptionParser.new do |o|
+      o.banner = 'Usage: jerk update [options]'
+      o.separator "\nOptions:"
+      global_options(o)
+
+      o.on('-r', "--ruby <#{rubies.keys.join('|')}>", 'Update only for specified ruby') do |rb|
+        (rbs ||= []) << rb
+      end
+    end
+    parser.parse!
+
+    packages = {}
+    (rbs || rubies.keys).each do |rb|
+      list_files(File.join(env_path, active_env, rb)) do |name|
+        (packages[split_name(name).first] ||= []) << rb
+      end
+    end
+
+    packages.each {|name, rb| install_package(rb, name) }
+  end
+
+  command :index, 'Update package index' do
+    update_index
+  end
+
+  command :env, 'Manage environment' do
+    parser = OptionParser.new do |o|
+      o.banner = 'Usage: jerk env [options] [command]'
+      o.separator "\nOptions:"
+      global_options(o)
+      o.separator "\nCommands:\n" +
+                  "    env <environment>                Switch to environment\n" +
+                  "    env rm <environment>             Remove environment\n"
+    end
+    parser.parse!
+
+    if ARGV[0] == 'rm'
+      env = ARGV[1]
+      usage(parser) if ARGV.length != 2
+      raise "Environment #{env} does not exist" if !File.exists?(File.join(env_path, env))
+      FileUtils.rm_rf File.join(env_path, env)
+      logger.info "Environment #{env} removed"
+      check_active_env
+    else
+      usage(parser) if ARGV.length != 1
+      set_env(ARGV[0])
+    end
+  end
+
+  command :export, 'Export environment variables (search paths)' do
+    begin
+      parser = OptionParser.new do |o|
+        o.banner = "Usage: jerk export [options] <environment> <#{rubies.keys.join('|')}>"
+        o.separator "\nOptions:"
+        global_options(o)
+      end
+      parser.parse!
+
+      env, rb = ARGV
+      usage(parser) if ARGV.length != 2 || !rubies.keys.include?(rb)
+      raise "Environment #{env} not found" if !env_list.include?(env)
+
+      bin, lib = [], []
+      path = File.join(env_path, env, rb)
+      list_files(path) do |name|
+        bin << File.join(path, name, 'bin')
+        lib << File.join(path, name, 'lib')
+        # Fix for rubypants
+        n, v = split_name(name)
+        lib << File.join(path, name) if File.exists?(File.join(path, name, "#{n}.rb"))
+      end
+      bin.reject! {|dir| !File.exists?(dir) }
+      lib.reject! {|dir| !File.exists?(dir) }
+      vars = {}
+      vars['RUBYLIB'] = (original_paths('RUBYLIB') + lib + bin).join(':')
+      vars['PATH'] = (original_paths('PATH') + bin).join(':')
+      puts 'export ' + vars.map {|k,v| "#{k}=#{v}" }.join(' ')
+    rescue => ex
+      puts "echo #{ex.message}"
+      exit 1
+    end
+  end
+end
+
+Jerk.new
