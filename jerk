@@ -42,6 +42,8 @@ module Gem
       @version = version.first
     end
   end
+
+  Version::Requirement = Requirement
 end
 
 class Jerk
@@ -362,6 +364,7 @@ class Jerk
         content = File.read(file)
         if content[0..1] == '#!'
           content.sub!(/^#!(.*)/, "#!#{rubies[rb]}")
+          File.chmod(0755, file) if !File.writable?(file) || !File.executable?(file)
           File.open(file, 'w') {|out| out << content }
         end
       end
