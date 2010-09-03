@@ -380,8 +380,13 @@ class Jerk
 
   # Install package
   def install_package(rbs, name)
-    name = find_package(name)
-    path = fetch_package(name)
+    if name =~ /([^\/]+)\.gem$/
+      path = name
+      name = $1
+    else
+      name = find_package(name)
+      path = fetch_package(name)
+    end
     installed = false
     rbs.each do |rb|
       begin
