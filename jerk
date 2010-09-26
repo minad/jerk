@@ -52,7 +52,8 @@ class Jerk
   Rubies = {
     '19'    => %w(ruby19 ruby1.9),
     '18'    => %w(ruby18 ruby1.8),
-    'rbx'   => %w(rbx)
+    'rbx'   => %w(rbx),
+    'jruby' => %w(jruby),
   }
 
   # List of spec files on the package server
