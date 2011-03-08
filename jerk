@@ -50,7 +50,7 @@ class Jerk
   # Ruby implementations
   # Identifier => List of commands
   Rubies = {
-    '19'    => %w(ruby19 ruby1.9),
+    '19'    => %w(ruby19 ruby1.9 ruby1.9.1),
     '18'    => %w(ruby18 ruby1.8),
     'rbx'   => %w(rbx),
     'jruby' => %w(jruby),
