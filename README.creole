@@ -33,17 +33,17 @@ Very simple: Copy the file 'jerk' and put it on the search path.
 Install a gem, export the jerk environment variables and use the installed gem (In this case rake).
 
 {{{
-$ jerk install rake
-$ `jerk export base 18`
+$ tinygem install rake
+$ `tinygem export base 18`
 $ rake
 }}}
 
 == Commands
 
 {{{
-$ jerk
-jerk: Simple ruby package manager
-Usage: jerk <command> [options]
+$ tinygem
+tinygem: Simple ruby package manager
+Usage: tinygem <command> [options]
 
 Commands:
     env                              Manage environment
@@ -61,7 +61,7 @@ Commands:
 Create/Switch to environment
 
 {{{
-jerk env test
+tinygem env test
 Environment test created
 Environment test is active
 }}}
@@ -69,7 +69,7 @@ Environment test is active
 Remove environment
 
 {{{
-$ jerk env rm test
+$ tinygem env rm test
 Environment test removed
 Environment base is active
 }}}
@@ -79,20 +79,20 @@ Environment base is active
 Export environment variables (enable installed packages)
 
 {{{
-$ `jerk export test 18`
+$ `tinygem export test 18`
 }}}
 
 Do not forget the backticks! Otherwise the variables will not be evaluated in the shell and you will see something like this
 
 {{{
-$ jerk export test 18
+$ tinygem export test 18
 export RUBYLIB=... PATH=...
 }}}
 
 === Update package index
 
 {{{
-$ jerk index
+$ tinygem index
 Fetch http://rubygems.org/latest_specs.4.8.gz
 Fetch http://rubygems.org/specs.4.8.gz
 Fetch http://rubygems.org/prerelease_specs.4.8.gz
@@ -113,7 +113,7 @@ The first word in the parantheses is the environment, the second is the ruby ver
 You can install packages only for specific ruby implementations, in this case ruby 1.8 and rubinius.
 
 {{{
-$ jerk install -r 18 -r rbx rake
+$ tinygem install -r 18 -r rbx rake
 (test 18) rake-0.8.7 installed
 (test rbx) rake-0.8.7 installed
 }}}
@@ -121,7 +121,7 @@ $ jerk install -r 18 -r rbx rake
 Install a specific version:
 
 {{{
-$ jerk install rake-0.8.4
+$ tinygem install rake-0.8.4
 (test 18) rake-0.8.4 installed
 (test 19) rake-0.8.4 installed
 (test rbx) rake-0.8.4 installed
@@ -130,7 +130,7 @@ $ jerk install rake-0.8.4
 == List installed packages
 
 {{{
-$ jerk list
+$ tinygem list
 rbx                    18        19        rbx
     nokogiri           1.4.3.1   1.4.3.1   1.4.3.1
     rake               0.8.7     0.8.7     0.8.7
@@ -144,7 +144,7 @@ test (active)          18        19        rbx
 Remove package from the active environment.
 
 {{{
-$ jerk remove rake
+$ tinygem remove rake
 (test 18) rake-0.8.7 removed
 (test 19) rake-0.8.7 removed
 (test rbx) rake-0.8.7 removed
@@ -157,7 +157,7 @@ Ruby implementations can be specified using '-r' as for 'jerk install'.
 This command shows all available versions in the index. Wildcards are supported.
 
 {{{
-$ jerk search creol*
+$ tinygem search creol*
 creole-0.3.6
 creole-0.3.3
 creole-0.3.4
@@ -168,7 +168,7 @@ creole-0.3.6
 === Update a package
 
 {{{
-$ jerk update
+$ tinygem update
 (test 18) rake-0.8.4 replaced with rake-0.8.7
 (test 19) rake-0.8.4 replaced with rake-0.8.7
 (test rbx) rake-0.8.4 replaced with rake-0.8.7
@@ -176,7 +176,7 @@ $ jerk update
 
 == Contributing
 
-# Fork jerk
+# Fork tinygem
 # Create a topic branch - git checkout -b my_branch
 # Push to your branch - git push origin my_branch
 # Create an issue with a link to your branch
