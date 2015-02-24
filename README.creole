@@ -1,6 +1,6 @@
-== Jerk - The fast ruby gem manager
+== tinygem - The fast ruby gem manager
 
-Jerk is a simple ruby gem manager in a single file with only about 600 LOC. There are no dependencies except for ruby itself, not even rubygems.
+tinygem is a simple ruby gem manager in a single file with only about 600 LOC. There are no dependencies except for ruby itself, not even rubygems.
 
 == Features
 
