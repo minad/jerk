@@ -22,15 +22,15 @@ Besides it depends on external package managers like rubygems or rpg which are u
 and fetching them is quite an easy task using a bit tar-magic.
 
 Conclusion: I wanted something simple to deploy, at best a single script with no external dependencies and definitely no dependency to shitty rubygems.
-And I wanted the possibility to manage gems for multiple ruby versions without much hassle. So here it is: The package jerk!
+And I wanted the possibility to manage gems for multiple ruby versions without much hassle. So here it is: The package tinygem!
 
 Beware of bugs in the above code; I have only proved it correct, ... ;) - no really, this thing was written in one day - no promises!
 
 == Installation
 
-Very simple: Copy the file 'jerk' and put it on the search path.
+Very simple: Copy the file 'tinygem' and put it on the search path.
 
-Install a gem, export the jerk environment variables and use the installed gem (In this case rake).
+Install a gem, export the tinygem environment variables and use the installed gem (In this case rake).
 
 {{{
 $ tinygem install rake
@@ -103,7 +103,7 @@ Fetch http://rubygems.org/prerelease_specs.4.8.gz
 Install a package in the active environment.
 
 {{{
-$ jerk install rake
+$ tinygem install rake
 (test 18) rake-0.8.7 installed
 (test 19) rake-0.8.7 installed
 (test rbx) rake-0.8.7 installed
@@ -150,7 +150,7 @@ $ tinygem remove rake
 (test rbx) rake-0.8.7 removed
 }}}
 
-Ruby implementations can be specified using '-r' as for 'jerk install'.
+Ruby implementations can be specified using '-r' as for 'tinygem install'.
 
 === Search a package
 
@@ -191,7 +191,7 @@ $ tinygem update
 
 == Author
 
-* [[https://github.com/minad/jerk|minad]]
+* [[https://github.com/minad/tinygem|minad]]
 
 == License
 
